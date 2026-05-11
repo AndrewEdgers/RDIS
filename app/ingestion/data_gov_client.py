@@ -28,6 +28,14 @@ def select_resource(
     strategy: str = "latest",
     preferred_formats: tuple[str, ...] = (),
 ) -> dict:
+    return select_resources(data, strategy=strategy, preferred_formats=preferred_formats)[-1]
+
+
+def select_resources(
+    data: dict,
+    strategy: str = "latest",
+    preferred_formats: tuple[str, ...] = (),
+) -> list[dict]:
     resources = [
         resource
         for resource in list_resources(data)
@@ -46,10 +54,7 @@ def select_resource(
     if not resources:
         raise ValueError("No active resources were found for dataset")
 
-    if strategy != "latest":
-        raise ValueError(f"Unsupported resource strategy '{strategy}'")
-
-    return max(
+    sorted_resources = sorted(
         resources,
         key=lambda resource: (
             resource.get("last_modified") or "",
@@ -57,6 +62,14 @@ def select_resource(
             resource.get("id") or "",
         ),
     )
+
+    if strategy == "all":
+        return sorted_resources
+
+    if strategy != "latest":
+        raise ValueError(f"Unsupported resource strategy '{strategy}'")
+
+    return [sorted_resources[-1]]
 
 
 def download_resource(url: str, output_path: Path) -> None:

@@ -39,6 +39,59 @@ Future development stages will include automated dataset downloading, data norma
 * JSON processing
 * Open Government Data API (data.gov.ua)
 
+## Getting Started
+
+Clone the repository and create a local virtual environment:
+
+```bash
+git clone https://github.com/AndrewEdgers/RDIS.git
+cd RDIS
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+Bash:
+
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Run the application:
+
+```bash
+python -m app.main
+```
+
+## Running Tests
+
+The test suite uses `pytest`.
+
+Run all tests:
+
+```bash
+python -m pytest -q
+```
+
+Run a specific test file:
+
+```bash
+python -m pytest tests/test_jobs.py -q
+```
+
 Planned technologies:
 
 * SQLite → PostgreSQL (scalable database layer)

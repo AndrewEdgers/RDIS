@@ -1,5 +1,8 @@
 data/*
 !data/.gitkeep
+db/*.sqlite
+db/*.sqlite3
+db/*.db
 __pycache__/
 *.pyc
 .env

@@ -33,7 +33,12 @@ def parse_industrial_parks_summary_workbook(
     }
 
     sheet_name, rows = workbook.read_sheet_rows(sheet_index)
-    validate_header_row(rows, header_row_number, header_expectations)
+    try:
+        validate_header_row(rows, header_row_number, header_expectations)
+    except ValueError:
+        if is_detail_workbook(rows):
+            return parse_industrial_parks_detail_workbook(workbook, minimum_rows, source_context)
+        raise
 
     parsed_rows: list[dict[str, object]] = []
     seen_registration_numbers: set[int] = set()
@@ -60,6 +65,86 @@ def parse_industrial_parks_summary_workbook(
         )
 
     return parsed_rows
+
+
+def parse_industrial_parks_detail_workbook(
+    workbook: "XlsxWorkbook",
+    minimum_rows: int,
+    source_context: dict[str, object],
+) -> list[dict[str, object]]:
+    parsed_rows = [
+        row
+        for sheet_name, rows in workbook.read_all_sheet_rows()
+        if (row := parse_detail_sheet(sheet_name, rows, source_context)) is not None
+    ]
+
+    if len(parsed_rows) < minimum_rows:
+        raise ValueError(f"Parsed {len(parsed_rows)} detail sheets, below minimum threshold {minimum_rows}")
+
+    return parsed_rows
+
+
+def is_detail_workbook(rows: dict[int, dict[str, str]]) -> bool:
+    first_rows = [cell for row_number, row in rows.items() if row_number <= 5 for cell in row.values()]
+    return any("реєстраційний номер" in normalize_whitespace(value).casefold() for value in first_rows)
+
+
+def parse_detail_sheet(
+    sheet_name: str,
+    rows: dict[int, dict[str, str]],
+    source_context: dict[str, object],
+) -> dict[str, object] | None:
+    park_name = first_nonblank_cell(rows)
+    if park_name is None:
+        return None
+
+    registration_row = find_row_containing(rows, "реєстраційний номер")
+    included_at = parse_required_date(
+        collect_values_after_label(registration_row or {}, "дата включення"),
+        "included_at",
+    )
+    registration_no = parse_required_int(
+        normalize_split_digits(
+            collect_values_between_labels(
+                registration_row or {},
+                "реєстраційний номер",
+                "дата включення",
+            )
+        ),
+        "registration_no",
+    )
+
+    location_raw = nullable_text(value_after_row_label(rows, "місцезнаходження"))
+    created_for_years = parse_optional_int(value_after_row_label(rows, "строк"))
+    area_ha_raw = value_after_row_label(rows, "площа індустріального парку")
+
+    return {
+        "registration_no": registration_no,
+        "park_name": park_name,
+        "included_at": included_at,
+        "excluded_from_register": derive_detail_exclusion(sheet_name, park_name),
+        "location_raw": location_raw,
+        "created_for_years": created_for_years,
+        "area_ha": parse_optional_float(area_ha_raw),
+        "area_ha_raw": nullable_text(area_ha_raw),
+        "concept_reference": None,
+        "register_entry_reference": None,
+        "government_decision_reference": None,
+        "source_sheet_name": sheet_name,
+        "source_dataset_id": source_context.get("dataset_id"),
+        "source_resource_id": source_context.get("resource_id"),
+        "source_resource_url": source_context.get("resource_url"),
+        "source_last_modified": source_context.get("resource_last_modified"),
+        "source_snapshot_date": source_context.get("source_snapshot_date"),
+        "ingested_at_utc": source_context.get("ingested_at_utc"),
+    }
+
+
+def derive_detail_exclusion(sheet_name: str, park_name: str) -> str | None:
+    combined_text = f"{sheet_name} {park_name}".casefold()
+    if "ліквід" in combined_text:
+        return "ЛІКВІДОВАНО"
+    return None
 
 
 def validate_header_row(
@@ -117,6 +202,7 @@ def parse_summary_row(
         "source_resource_id": source_context.get("resource_id"),
         "source_resource_url": source_context.get("resource_url"),
         "source_last_modified": source_context.get("resource_last_modified"),
+        "source_snapshot_date": source_context.get("source_snapshot_date"),
         "ingested_at_utc": source_context.get("ingested_at_utc"),
     }
     return row
@@ -144,6 +230,99 @@ def should_skip_row(row_cells: dict[str, str], column_map: dict[str, str]) -> bo
     if parse_optional_date(row_cells.get(included_at_column, "")) is None:
         return True
     return False
+
+
+def first_nonblank_cell(rows: dict[int, dict[str, str]]) -> str | None:
+    for row_number in sorted(rows):
+        for value in rows[row_number].values():
+            cleaned = nullable_text(value)
+            if cleaned is not None:
+                return cleaned
+    return None
+
+
+def find_row_containing(
+    rows: dict[int, dict[str, str]],
+    label_fragment: str,
+) -> dict[str, str] | None:
+    label_fragment = label_fragment.casefold()
+    for row_number in sorted(rows):
+        row = rows[row_number]
+        if any(label_fragment in normalize_whitespace(value).casefold() for value in row.values()):
+            return row
+    return None
+
+
+def value_after_row_label(rows: dict[int, dict[str, str]], label_fragment: str) -> str:
+    row = find_row_containing(rows, label_fragment)
+    if row is None:
+        return ""
+    return collect_values_after_label(row, label_fragment)
+
+
+def collect_values_between_labels(
+    row: dict[str, str],
+    start_label_fragment: str,
+    stop_label_fragment: str,
+) -> str:
+    values = ordered_row_values(row)
+    start_index = find_value_index(values, start_label_fragment)
+    stop_index = find_value_index(values, stop_label_fragment)
+    if start_index is None:
+        return ""
+    if stop_index is None:
+        stop_index = len(values)
+    return compact_cell_values(values[start_index + 1 : stop_index])
+
+
+def collect_values_after_label(row: dict[str, str], label_fragment: str) -> str:
+    values = ordered_row_values(row)
+    label_index = find_value_index(values, label_fragment)
+    if label_index is None:
+        return ""
+    return compact_cell_values(values[label_index + 1 :])
+
+
+def ordered_row_values(row: dict[str, str]) -> list[str]:
+    return [row[column] for column in sorted(row, key=column_sort_key)]
+
+
+def column_sort_key(column: str) -> int:
+    number = 0
+    for character in column:
+        number = number * 26 + (ord(character.upper()) - ord("A") + 1)
+    return number
+
+
+def find_value_index(values: list[str], label_fragment: str) -> int | None:
+    label_fragment = label_fragment.casefold()
+    for index, value in enumerate(values):
+        if label_fragment in normalize_whitespace(value).casefold():
+            return index
+    return None
+
+
+def compact_cell_values(values: list[str]) -> str:
+    cleaned_values = [normalize_detail_cell_value(value) for value in values]
+    nonblank_values = [value for value in cleaned_values if value]
+    if not nonblank_values:
+        return ""
+    if any(value == "." for value in nonblank_values):
+        return "".join(nonblank_values)
+    return " ".join(nonblank_values)
+
+
+def normalize_detail_cell_value(value: str) -> str:
+    cleaned = normalize_whitespace(value)
+    if re.fullmatch(r"\d+\.0", cleaned):
+        return cleaned[:-2]
+    return cleaned
+
+
+def normalize_split_digits(value: str) -> str:
+    if re.fullmatch(r"\d+(?:\s+\d+)+", value):
+        return value.replace(" ", "")
+    return value
 
 
 def get_column_name(column_map: dict[str, str], field_name: str) -> str:
@@ -178,8 +357,13 @@ def parse_optional_int(value: str) -> int | None:
     cleaned = nullable_text(value)
     if cleaned is None:
         return None
+
+    match = NUMERIC_RE.search(cleaned)
+    if not match:
+        return None
+
     try:
-        return int(float(cleaned.replace(",", ".")))
+        return int(float(match.group(0).replace(",", ".")))
     except ValueError:
         return None
 
@@ -244,6 +428,15 @@ class XlsxWorkbook:
             rows = load_sheet_rows(archive, sheet_target, shared_strings)
         return sheet_name, rows
 
+    def read_all_sheet_rows(self) -> list[tuple[str, dict[int, dict[str, str]]]]:
+        with zipfile.ZipFile(self.workbook_path) as archive:
+            shared_strings = load_shared_strings(archive)
+            sheets = load_sheet_targets(archive)
+            return [
+                (sheet_name, load_sheet_rows(archive, sheet_target, shared_strings))
+                for sheet_name, sheet_target in sheets
+            ]
+
 
 def load_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     try:
@@ -271,8 +464,20 @@ def load_sheet_targets(archive: zipfile.ZipFile) -> list[tuple[str, str]]:
     sheets: list[tuple[str, str]] = []
     for sheet in workbook_root.findall("main:sheets/main:sheet", MAIN_NS):
         relationship_id = sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]
-        sheets.append((sheet.attrib["name"], "xl/" + relationship_targets[relationship_id]))
+        sheets.append(
+            (
+                sheet.attrib["name"],
+                normalize_workbook_relationship_target(relationship_targets[relationship_id]),
+            )
+        )
     return sheets
+
+
+def normalize_workbook_relationship_target(target: str) -> str:
+    normalized = target.lstrip("/")
+    if normalized.startswith("xl/"):
+        return normalized
+    return "xl/" + normalized
 
 
 def load_sheet_rows(

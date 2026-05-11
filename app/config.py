@@ -4,8 +4,12 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
+DB_DIR = BASE_DIR / "db"
+DATABASE_PATH = DB_DIR / "rdis.sqlite3"
+NORMALIZED_INDICATORS_PATH = DATA_DIR / "normalized_indicators.csv"
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+DB_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @dataclass(frozen=True)
@@ -22,6 +26,22 @@ class SourceConfig:
     manifest_path: Path
     preferred_formats: tuple[str, ...] = ("XLSX",)
     parser_options: dict[str, object] = field(default_factory=dict)
+
+    @property
+    def historical_raw_dir(self) -> Path:
+        return self.raw_binary_path.parent / self.source_id / "raw"
+
+    @property
+    def historical_clean_dir(self) -> Path:
+        return self.clean_output_path.parent / self.source_id / "clean"
+
+    @property
+    def historical_converted_dir(self) -> Path:
+        return self.raw_binary_path.parent / self.source_id / "converted"
+
+    @property
+    def historical_manifest_path(self) -> Path:
+        return self.manifest_path.parent / f"{self.source_id}_historical.manifest.json"
 
 
 SOURCES: dict[str, SourceConfig] = {
