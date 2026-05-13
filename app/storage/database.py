@@ -44,6 +44,25 @@ ON indicator_values (period_date);
 
 CREATE INDEX IF NOT EXISTS idx_indicator_values_region_period
 ON indicator_values (region_id, period_date);
+
+CREATE TABLE IF NOT EXISTS indicator_forecasts (
+    id INTEGER PRIMARY KEY,
+    indicator_id INTEGER NOT NULL,
+    region_id INTEGER NOT NULL,
+    forecast_date TEXT NOT NULL,
+    predicted_value REAL NOT NULL,
+    model_name TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (indicator_id, region_id, forecast_date, model_name),
+    FOREIGN KEY (indicator_id) REFERENCES indicators(id),
+    FOREIGN KEY (region_id) REFERENCES regions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_indicator_forecasts_date
+ON indicator_forecasts (forecast_date);
+
+CREATE INDEX IF NOT EXISTS idx_indicator_forecasts_region_date
+ON indicator_forecasts (region_id, forecast_date);
 """
 
 

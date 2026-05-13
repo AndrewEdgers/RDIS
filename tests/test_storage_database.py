@@ -21,7 +21,7 @@ def test_initialize_database_creates_indicator_schema(tmp_path: Path):
             ).fetchall()
         }
 
-    assert {"regions", "indicators", "indicator_values"}.issubset(table_names)
+    assert {"regions", "indicators", "indicator_values", "indicator_forecasts"}.issubset(table_names)
 
 
 def test_load_normalized_indicators_to_database_populates_lookup_tables(tmp_path: Path):

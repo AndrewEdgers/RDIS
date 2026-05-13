@@ -2,3 +2,6 @@ requests
 pytest
 openpyxl
 xlrd
+streamlit
+pandas
+altair
